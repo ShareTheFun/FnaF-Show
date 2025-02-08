@@ -14,7 +14,12 @@ const startTime = Date.now();
 
 app.use(bodyParser.json());
 
-// Helper functions for consistent logging with a prefix.
+// Serve index.html from the root directory.
+app.get('/', (req, res) => {
+  res.sendFile(__dirname + '/index.html');
+});
+
+// Helper functions for consistent console logging with a prefix.
 function logShow(message) {
   console.log(`FnaF -Show: ${message}`);
 }
@@ -30,6 +35,46 @@ async function downloadVideo(videoUrl, filePath) {
     fs.writeFileSync(filePath, response.data);
   } catch (error) {
     throw error;
+  }
+}
+
+// New helper function to send an audio attachment.
+async function sendAudioAttachment(senderId, filePath, title) {
+  const url = `https://graph.facebook.com/v18.0/me/messages?access_token=${config.PAGE_ACCESS_TOKEN}`;
+  const form = new FormData();
+  form.append("recipient", JSON.stringify({ id: senderId }));
+  form.append("message", JSON.stringify({
+    attachment: {
+      type: "audio",
+      payload: { is_reusable: true }
+    }
+  }));
+  form.append("filedata", fs.createReadStream(filePath));
+  try {
+    await axios.post(url, form, { headers: form.getHeaders() });
+    logShow(`Sent audio attachment to ${senderId}: ${title}`);
+  } catch (error) {
+    logError("Error sending audio attachment: " + (error.response ? error.response.data : error.message));
+  }
+}
+
+// Function to send a video attachment via Messenger API.
+async function sendVideoAttachment(senderId, filePath, title) {
+  const url = `https://graph.facebook.com/v18.0/me/messages?access_token=${config.PAGE_ACCESS_TOKEN}`;
+  const form = new FormData();
+  form.append("recipient", JSON.stringify({ id: senderId }));
+  form.append("message", JSON.stringify({
+    attachment: {
+      type: "video",
+      payload: { is_reusable: true }
+    }
+  }));
+  form.append("filedata", fs.createReadStream(filePath));
+  try {
+    await axios.post(url, form, { headers: form.getHeaders() });
+    logShow(`Sent video attachment to ${senderId}: ${title}`);
+  } catch (error) {
+    logError("Error sending video attachment: " + (error.response ? error.response.data : error.message));
   }
 }
 
@@ -76,20 +121,32 @@ app.post("/webhook", async (req, res) => {
             const helpMessage =
 `Available commands:
 /help - Show this help message
-/ytdl <YouTube URL> - Download a YouTube video
-(Admin only: /restart, /uptime)
+/ytdl <-v/-a> <YouTube URL> - Download a YouTube video as video (-v) or audio (-a)
+/restart - Restart the bot (admin only)
+/uptime - Show bot uptime (admin only)
 
 For general queries, just type your message without a slash.
 (Note: "/ai" and "/feddy" are not valid commands—they will be treated as normal queries.)`;
             await sendMessage(senderId, helpMessage);
             return;
           } else if (cmd === "/ytdl") {
-            // Extract URL from the command.
-            const url = userQuestion.substring(6).trim();
+            // Expecting: /ytdl <-v/-a> <YouTube URL>
+            if (parts.length < 3) {
+              await sendMessage(senderId, "Usage: /ytdl <-v/-a> <YouTube URL>");
+              return;
+            }
+            const modeFlag = parts[1].toLowerCase();
+            if (modeFlag !== "-v" && modeFlag !== "-a") {
+              await sendMessage(senderId, "Usage: /ytdl <-v/-a> <YouTube URL>");
+              return;
+            }
+            // Rejoin remaining parts as the URL.
+            const url = parts.slice(2).join(" ").trim();
             if (!url.includes("youtube") && !url.includes("youtu.be")) {
               await sendMessage(senderId, "Invalid YouTube URL. Please provide a valid YouTube video link.");
               return;
             }
+
             try {
               // Get video data using ytdown.
               // Expected output: { data: { title: <video title>, video: <URL to video file> } }
@@ -104,19 +161,25 @@ For general queries, just type your message without a slash.
               if (!fs.existsSync(cacheDir)) {
                 fs.mkdirSync(cacheDir);
               }
-              const filePath = `${cacheDir}/ytdl.mp4`;
+              // Choose file extension based on mode flag.
+              const filePath = modeFlag === "-v" ? `${cacheDir}/ytdl.mp4` : `${cacheDir}/ytdl.mp3`;
 
               // Download the video file.
               await downloadVideo(videoData.video, filePath);
 
-              await sendMessage(senderId, "Done downloading. Sending video...");
-              // Send the video as an attachment.
-              await sendVideoAttachment(senderId, filePath, videoData.title);
+              await sendMessage(senderId, "Done downloading. Sending " + (modeFlag === "-v" ? "video" : "audio") + "...");
+
+              // Send the attachment based on the mode.
+              if (modeFlag === "-v") {
+                await sendVideoAttachment(senderId, filePath, videoData.title);
+              } else {
+                await sendAudioAttachment(senderId, filePath, videoData.title);
+              }
 
               // Delete the file after sending.
               fs.unlink(filePath, (err) => {
                 if (err) {
-                  sendMessage(senderId, "Error deleting video file: " + (err.message || "Unknown error."));
+                  sendMessage(senderId, "Error deleting file: " + (err.message || "Unknown error."));
                   logError("Error deleting file: " + (err.message || "Unknown error."));
                 } else {
                   logShow("Deleted file: " + filePath);
@@ -148,7 +211,7 @@ For general queries, just type your message without a slash.
             }
           } else if (cmd === "/ai" || cmd === "/feddy") {
             // Remove the slash and treat it as a normal query.
-            userQuestion = userQuestion.substring(1); // Remove leading '/'
+            userQuestion = userQuestion.substring(1);
           } else {
             // Unrecognized slash command.
             await sendMessage(senderId, "Invalid command, use /help to see it");
@@ -231,23 +294,23 @@ async function sendMessage(senderId, text) {
   }
 }
 
-// Function to send a video attachment via Messenger API.
-async function sendVideoAttachment(senderId, filePath, title) {
+// Function to send an audio attachment via Messenger API.
+async function sendAudioAttachment(senderId, filePath, title) {
   const url = `https://graph.facebook.com/v18.0/me/messages?access_token=${config.PAGE_ACCESS_TOKEN}`;
   const form = new FormData();
   form.append("recipient", JSON.stringify({ id: senderId }));
   form.append("message", JSON.stringify({
     attachment: {
-      type: "video",
+      type: "audio",
       payload: { is_reusable: true }
     }
   }));
   form.append("filedata", fs.createReadStream(filePath));
   try {
     await axios.post(url, form, { headers: form.getHeaders() });
-    logShow(`Sent video attachment to ${senderId}: ${title}`);
+    logShow(`Sent audio attachment to ${senderId}: ${title}`);
   } catch (error) {
-    logError("Error sending video attachment: " + (error.response ? error.response.data : error.message));
+    logError("Error sending audio attachment: " + (error.response ? error.response.data : error.message));
   }
 }
 
