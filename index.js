@@ -14,12 +14,14 @@ const startTime = Date.now();
 
 app.use(bodyParser.json());
 
-// Serve index.html from the root directory.
-app.get('/', (req, res) => {
-  res.sendFile(__dirname + '/index.html');
-});
+// (Optional) Serve index.html from the root directory if needed
+// app.get('/', (req, res) => {
+//   res.sendFile(__dirname + '/index.html');
+// });
 
-// Helper functions for consistent console logging with a prefix.
+// ---------------------
+// Helper Logging Functions
+// ---------------------
 function logShow(message) {
   console.log(`FnaF -Show: ${message}`);
 }
@@ -28,17 +30,27 @@ function logError(message) {
   console.error(`FnaF -Show: ${message}`);
 }
 
-// Helper function to download a file from a URL using arraybuffer and save it to disk.
+// ---------------------
+// Helper Download Function
+// ---------------------
 async function downloadVideo(videoUrl, filePath) {
   try {
-    const response = await axios.get(videoUrl, { responseType: 'arraybuffer' });
+    // Include a custom User-Agent header to mimic a browser.
+    const response = await axios.get(videoUrl, {
+      responseType: 'arraybuffer',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.102 Safari/537.36'
+      }
+    });
     fs.writeFileSync(filePath, response.data);
   } catch (error) {
     throw error;
   }
 }
 
-// New helper function to send an audio attachment.
+// ---------------------
+// Helper Attachment Functions
+// ---------------------
 async function sendAudioAttachment(senderId, filePath, title) {
   const url = `https://graph.facebook.com/v18.0/me/messages?access_token=${config.PAGE_ACCESS_TOKEN}`;
   const form = new FormData();
@@ -58,7 +70,6 @@ async function sendAudioAttachment(senderId, filePath, title) {
   }
 }
 
-// Function to send a video attachment via Messenger API.
 async function sendVideoAttachment(senderId, filePath, title) {
   const url = `https://graph.facebook.com/v18.0/me/messages?access_token=${config.PAGE_ACCESS_TOKEN}`;
   const form = new FormData();
@@ -78,12 +89,25 @@ async function sendVideoAttachment(senderId, filePath, title) {
   }
 }
 
+// ---------------------
+// Express Routes
+// ---------------------
+
+// (Optional) /stats endpoint to provide realtime status info.
+app.get("/stats", (req, res) => {
+  const uptimeMillis = Date.now() - startTime;
+  const uptimeSeconds = Math.floor(uptimeMillis / 1000);
+  res.json({
+    profileName: config.adminName || "Unknown",
+    uptimeSeconds: uptimeSeconds
+  });
+});
+
 // Webhook Verification Endpoint
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
-
   if (mode === "subscribe" && token === config.VERIFY_TOKEN) {
     res.status(200).send(challenge);
   } else {
@@ -91,7 +115,7 @@ app.get("/webhook", (req, res) => {
   }
 });
 
-// Webhook Event Listener
+// Webhook Event Listener for Messenger
 app.post("/webhook", async (req, res) => {
   const body = req.body;
   if (body.object === "page") {
@@ -130,7 +154,7 @@ For general queries, just type your message without a slash.
             await sendMessage(senderId, helpMessage);
             return;
           } else if (cmd === "/ytdl") {
-            // Expecting: /ytdl <-v/-a> <YouTube URL>
+            // Expected format: /ytdl <-v/-a> <YouTube URL>
             if (parts.length < 3) {
               await sendMessage(senderId, "Usage: /ytdl <-v/-a> <YouTube URL>");
               return;
@@ -140,18 +164,16 @@ For general queries, just type your message without a slash.
               await sendMessage(senderId, "Usage: /ytdl <-v/-a> <YouTube URL>");
               return;
             }
-            // Rejoin remaining parts as the URL.
             const url = parts.slice(2).join(" ").trim();
             if (!url.includes("youtube") && !url.includes("youtu.be")) {
               await sendMessage(senderId, "Invalid YouTube URL. Please provide a valid YouTube video link.");
               return;
             }
-
             try {
-              // Get video data using ytdown.
+              // Use ytdown to get video data.
               // Expected output: { data: { title: <video title>, video: <URL to video file> } }
               const result = await ytdown(url);
-              const videoData = result.data; // Extract video data
+              const videoData = result.data;
 
               // Send the video title first.
               await sendMessage(senderId, `▶️Title: ${videoData.title}`);
@@ -161,7 +183,7 @@ For general queries, just type your message without a slash.
               if (!fs.existsSync(cacheDir)) {
                 fs.mkdirSync(cacheDir);
               }
-              // Choose file extension based on mode flag.
+              // Determine file path based on the mode flag.
               const filePath = modeFlag === "-v" ? `${cacheDir}/ytdl.mp4` : `${cacheDir}/ytdl.mp3`;
 
               // Download the video file.
@@ -169,7 +191,7 @@ For general queries, just type your message without a slash.
 
               await sendMessage(senderId, "Done downloading. Sending " + (modeFlag === "-v" ? "video" : "audio") + "...");
 
-              // Send the attachment based on the mode.
+              // Send the attachment.
               if (modeFlag === "-v") {
                 await sendVideoAttachment(senderId, filePath, videoData.title);
               } else {
@@ -192,7 +214,6 @@ For general queries, just type your message without a slash.
             }
             return;
           } else if (senderId === config.admin && (cmd === "/restart" || cmd === "/uptime")) {
-            // Admin-only commands.
             if (cmd === "/restart") {
               await sendMessage(senderId, "Restarting bot...");
               logShow("Admin requested restart. Exiting process...");
@@ -210,10 +231,8 @@ For general queries, just type your message without a slash.
               return;
             }
           } else if (cmd === "/ai" || cmd === "/feddy") {
-            // Remove the slash and treat it as a normal query.
             userQuestion = userQuestion.substring(1);
           } else {
-            // Unrecognized slash command.
             await sendMessage(senderId, "Invalid command, use /help to see it");
             return;
           }
@@ -241,7 +260,9 @@ For general queries, just type your message without a slash.
   }
 });
 
-// Function to call the AI API endpoint for normal queries.
+// ---------------------
+// AI API Call Function
+// ---------------------
 async function getAIResponse(question) {
   const systemPrompt = `
     You are Freddy—a charismatic and friendly performer from Five Nights at Freddy's.
@@ -265,7 +286,9 @@ async function getAIResponse(question) {
   }
 }
 
-// Function to send a sender action (like typing indicators) via Messenger API.
+// ---------------------
+// Messenger API Helper Functions
+// ---------------------
 async function sendSenderAction(senderId, action) {
   const url = `https://graph.facebook.com/v18.0/me/messages?access_token=${config.PAGE_ACCESS_TOKEN}`;
   const payload = {
@@ -279,7 +302,6 @@ async function sendSenderAction(senderId, action) {
   }
 }
 
-// Function to send a text message via Messenger API.
 async function sendMessage(senderId, text) {
   const url = `https://graph.facebook.com/v18.0/me/messages?access_token=${config.PAGE_ACCESS_TOKEN}`;
   const messageData = {
@@ -294,30 +316,11 @@ async function sendMessage(senderId, text) {
   }
 }
 
-// Function to send an audio attachment via Messenger API.
-async function sendAudioAttachment(senderId, filePath, title) {
-  const url = `https://graph.facebook.com/v18.0/me/messages?access_token=${config.PAGE_ACCESS_TOKEN}`;
-  const form = new FormData();
-  form.append("recipient", JSON.stringify({ id: senderId }));
-  form.append("message", JSON.stringify({
-    attachment: {
-      type: "audio",
-      payload: { is_reusable: true }
-    }
-  }));
-  form.append("filedata", fs.createReadStream(filePath));
-  try {
-    await axios.post(url, form, { headers: form.getHeaders() });
-    logShow(`Sent audio attachment to ${senderId}: ${title}`);
-  } catch (error) {
-    logError("Error sending audio attachment: " + (error.response ? error.response.data : error.message));
-  }
-}
-
-// Start the server.
+// ---------------------
+// Start the Server
+// ---------------------
 app.listen(PORT, () => {
   logShow(`Server running on port ${PORT}`);
-  // On startup, send a startup message to the admin.
   const startupMessage = "Bot online!\nMade by Mart John Labaco\nOwn code\nFbPageBot";
   sendMessage(config.admin, startupMessage).catch(err => logError(err));
 });
