@@ -14,14 +14,16 @@ const startTime = Date.now();
 
 app.use(bodyParser.json());
 
-// (Optional) Serve index.html from the root directory if needed
-// app.get('/', (req, res) => {
-//   res.sendFile(__dirname + '/index.html');
-// });
+// ----------------------------------
+// Serve index.html from the root URL.
+// ----------------------------------
+app.get("/", (req, res) => {
+  res.sendFile(__dirname + "/index.html");
+});
 
-// ---------------------
+// ----------------------------------
 // Helper Logging Functions
-// ---------------------
+// ----------------------------------
 function logShow(message) {
   console.log(`FnaF -Show: ${message}`);
 }
@@ -30,16 +32,17 @@ function logError(message) {
   console.error(`FnaF -Show: ${message}`);
 }
 
-// ---------------------
+// ----------------------------------
 // Helper Download Function
-// ---------------------
+// ----------------------------------
 async function downloadVideo(videoUrl, filePath) {
   try {
     // Include a custom User-Agent header to mimic a browser.
     const response = await axios.get(videoUrl, {
-      responseType: 'arraybuffer',
+      responseType: "arraybuffer",
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.102 Safari/537.36'
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.102 Safari/537.36"
       }
     });
     fs.writeFileSync(filePath, response.data);
@@ -48,25 +51,31 @@ async function downloadVideo(videoUrl, filePath) {
   }
 }
 
-// ---------------------
+// ----------------------------------
 // Helper Attachment Functions
-// ---------------------
+// ----------------------------------
 async function sendAudioAttachment(senderId, filePath, title) {
   const url = `https://graph.facebook.com/v18.0/me/messages?access_token=${config.PAGE_ACCESS_TOKEN}`;
   const form = new FormData();
   form.append("recipient", JSON.stringify({ id: senderId }));
-  form.append("message", JSON.stringify({
-    attachment: {
-      type: "audio",
-      payload: { is_reusable: true }
-    }
-  }));
+  form.append(
+    "message",
+    JSON.stringify({
+      attachment: {
+        type: "audio",
+        payload: { is_reusable: true }
+      }
+    })
+  );
   form.append("filedata", fs.createReadStream(filePath));
   try {
     await axios.post(url, form, { headers: form.getHeaders() });
     logShow(`Sent audio attachment to ${senderId}: ${title}`);
   } catch (error) {
-    logError("Error sending audio attachment: " + (error.response ? error.response.data : error.message));
+    logError(
+      "Error sending audio attachment: " +
+        (error.response ? error.response.data : error.message)
+    );
   }
 }
 
@@ -74,26 +83,32 @@ async function sendVideoAttachment(senderId, filePath, title) {
   const url = `https://graph.facebook.com/v18.0/me/messages?access_token=${config.PAGE_ACCESS_TOKEN}`;
   const form = new FormData();
   form.append("recipient", JSON.stringify({ id: senderId }));
-  form.append("message", JSON.stringify({
-    attachment: {
-      type: "video",
-      payload: { is_reusable: true }
-    }
-  }));
+  form.append(
+    "message",
+    JSON.stringify({
+      attachment: {
+        type: "video",
+        payload: { is_reusable: true }
+      }
+    })
+  );
   form.append("filedata", fs.createReadStream(filePath));
   try {
     await axios.post(url, form, { headers: form.getHeaders() });
     logShow(`Sent video attachment to ${senderId}: ${title}`);
   } catch (error) {
-    logError("Error sending video attachment: " + (error.response ? error.response.data : error.message));
+    logError(
+      "Error sending video attachment: " +
+        (error.response ? error.response.data : error.message)
+    );
   }
 }
 
-// ---------------------
-// Express Routes
-// ---------------------
+// ----------------------------------
+// Express Routes / Endpoints
+// ----------------------------------
 
-// (Optional) /stats endpoint to provide realtime status info.
+// /stats endpoint to provide realtime status info.
 app.get("/stats", (req, res) => {
   const uptimeMillis = Date.now() - startTime;
   const uptimeSeconds = Math.floor(uptimeMillis / 1000);
@@ -103,7 +118,7 @@ app.get("/stats", (req, res) => {
   });
 });
 
-// Webhook Verification Endpoint
+// Webhook Verification Endpoint for Messenger.
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -115,7 +130,7 @@ app.get("/webhook", (req, res) => {
   }
 });
 
-// Webhook Event Listener for Messenger
+// Webhook Event Listener for Messenger.
 app.post("/webhook", async (req, res) => {
   const body = req.body;
   if (body.object === "page") {
@@ -142,8 +157,7 @@ app.post("/webhook", async (req, res) => {
 
           // /help command.
           if (cmd === "/help") {
-            const helpMessage =
-`Available commands:
+            const helpMessage = `Available commands:
 /help - Show this help message
 /ytdl <-v/-a> <YouTube URL> - Download a YouTube video as video (-v) or audio (-a)
 /restart - Restart the bot (admin only)
@@ -231,6 +245,7 @@ For general queries, just type your message without a slash.
               return;
             }
           } else if (cmd === "/ai" || cmd === "/feddy") {
+            // Remove the slash and treat as a normal query.
             userQuestion = userQuestion.substring(1);
           } else {
             await sendMessage(senderId, "Invalid command, use /help to see it");
@@ -245,7 +260,7 @@ For general queries, just type your message without a slash.
         await sendMessage(senderId, aiResponse);
       }
 
-      // Handle Get Started Postback.
+      // Process Get Started Postback.
       if (webhookEvent.postback) {
         const payload = webhookEvent.postback.payload;
         if (payload === "GET_STARTED_PAYLOAD") {
@@ -260,9 +275,9 @@ For general queries, just type your message without a slash.
   }
 });
 
-// ---------------------
+// ----------------------------------
 // AI API Call Function
-// ---------------------
+// ----------------------------------
 async function getAIResponse(question) {
   const systemPrompt = `
     You are Freddy—a charismatic and friendly performer from Five Nights at Freddy's.
@@ -286,9 +301,9 @@ async function getAIResponse(question) {
   }
 }
 
-// ---------------------
+// ----------------------------------
 // Messenger API Helper Functions
-// ---------------------
+// ----------------------------------
 async function sendSenderAction(senderId, action) {
   const url = `https://graph.facebook.com/v18.0/me/messages?access_token=${config.PAGE_ACCESS_TOKEN}`;
   const payload = {
@@ -316,11 +331,12 @@ async function sendMessage(senderId, text) {
   }
 }
 
-// ---------------------
+// ----------------------------------
 // Start the Server
-// ---------------------
+// ----------------------------------
 app.listen(PORT, () => {
   logShow(`Server running on port ${PORT}`);
+  // On startup, send a startup message to the admin.
   const startupMessage = "Bot online!\nMade by Mart John Labaco\nOwn code\nFbPageBot";
   sendMessage(config.admin, startupMessage).catch(err => logError(err));
 });
